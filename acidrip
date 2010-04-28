@@ -1,0 +1,328 @@
+ZLhGGjG64z#!/usr/bin/perl -w
+
+eval 'exec /usr/bin/perl -w -S $0 ${1+"$@"}'
+    if 0; # not running under some shell
+
+require 5.005;
+use strict;
+use vars qw($VERSION);
+
+$VERSION = '0.14';
+
+package acidrip;
+
+use AcidRip::acidrip;
+use Getopt::Long;
+
+sub version {
+  print "AcidRip - Version $::VERSION \"Written\" by Chris Phillips <acid_kewpie\@users.sourceforge.net>\n";
+  exit 0;
+}
+
+@ARGV = ( '-x', @ARGV ) if ( scalar @ARGV );
+
+my %opts = ();
+GetOptions(
+  'x|no-gui'     => \$opts{'x'},
+  'c|crop=i'     => \$opts{'c'},
+  't|track=i'    => \$opts{'t'},
+  'v|version'    => \$opts{'v'},
+  'f|filename=s' => \$opts{'f'},
+  'h|help'       => \$opts{'h'}
+);
+
+$::settings = new acidrip_settings;
+$::playlist = new acidrip_playlist;
+
+$::settings->load_settings;
+
+$::messages = new acidrip_messages($::settings->{'ui_language'});
+$::dvd      = ();
+
+version() if $opts{'v'};
+
+$::widgets = new acidrip;
+
+$::settings->{'verbose'} = 0;
+load_settings_to_interface();    
+$::settings->{'verbose'} = 1;
+
+get_available_codecs();    
+
+$::widgets->{'acidrip'}->show;
+
+if ( $::settings->{'autoload'} ) {
+  $::widgets->{'read_dvd_button'}->clicked;
+  $::widgets->{'crop_detect_button'}->clicked if $::settings->{'crop_enable'};
+}
+message("AcidRip $::VERSION, \"Written\" by C.Phillips <acid_kewpie\@users.sf.net>");
+
+main Gtk2;
+
+exit 0;
+
+__END__
+
+#===============================================================================
+#==== Documentation
+#===============================================================================
+=pod
+
+
+=head1 NAME
+
+
+acidrip - a Gtk2::Perl wrapper for MPlayer / Mencoder
+
+
+=head1 SYNOPSIS
+
+
+acidrip
+
+
+=head1 DESCRIPTION
+
+
+AcidRip is a Gtk2::Perl application for ripping and encoding DVD's and other media files. It neatly wraps MPlayer and MEncoder, which is pretty handy, seeing as MPlayer
+is by far the best video player software. As well as creating a simple interface for those scared of getting down and dirty with MEncoders
+command line interface, It also automates the process in a number of ways:
+
+=over
+
+=item * 
+
+Parses DVD into contents tree
+
+=item * 
+
+Finds longest title
+
+=item * 
+
+Calculate video bitrate for given filesize
+
+=item * 
+
+Finds black bands and crops them
+
+=item * 
+
+Divides long films into multiple files
+
+=item *
+
+Other stuff!
+
+=back
+
+=head1 USAGE
+
+Some simple steps to ripping with AcidRip:
+
+=head2 1 - Load DVD or file
+
+=over
+
+To load a DVD, press "Load" with the disk in your drive (after checking that the device is correct. You might want to symlink it to /dev/dvd).
+To load a file, or a whole directory, enter the location in the "Path" box and hit Load.
+This loads contents and displays it as a tree of tracks (and chapters for DVD). The longest track, 
+assumed to be the main feature, is automatically selected for you. If you wish to only encode certain chapters of a DVD title, just expand that 
+branch and click on the first and last chapters you want, while holding shift.
+
+
+
+=back
+
+=head2 2 - Choose correct file name and desired size
+
+=over
+
+The name of the output file is defined by a number of variables:
+
+=over
+
+=item *
+
+%T - Title of the track, as in the editable box above
+
+=item *
+
+%N - Number of the selected track - useful for batch encoding
+
+=item *
+
+%L - Length of the selected track
+
+=item *
+
+%f - The first letter of the title [useful for organisation]
+
+=item *
+
+%b - bitrate of the video stream
+
+=item *
+
+%l - language of the audio track
+
+=item *
+
+%w - width of the video output
+
+=item *
+
+%h - height of the video output
+
+=back
+
+For example, "/var/film/%f/%T-%N-%wx%h" might be evaluated to "/var/film/s/simpsons-2-480x360".
+
+Also select a file size. This is used to calculate bitrates for the codecs you are going to use. If the codecs you choose do NOT support 
+a bitrate option (e.g copy, rawrgb etc. for video) then the given size can NOT be enforced at all.
+
+A film can be split into a number of files by setting a value in the relevant box. The created files are split by chapter boundaries,
+so the chapters must be suitable.
+
+You can also add additional information, akin to the ID3 tag's in MP3s. Choose the field in the combo box and enter the correct value.
+Few players other than mplayer use this information though.
+
+=back
+
+=head2 3 - Choose audio track
+
+=over
+
+Select the language for the audio. You may also have the option to encode directors commentary etc., however the tracks
+will only be listed as such if the description is actually on the DVD itself, which doesn't seem to happen that often.
+
+=back
+
+=head2 4 - Choose audio output
+
+=over
+
+Use the combo box to choose how to encode the audio. normally this should be an MP3 stream. If you do not have mp3lame listed in 
+the codecs combo box then you need to compile it into mencoder, it is nothing to do with acidrip at all. If you choose
+mp3lame set your options in the box below. See the mencoder manpage for a list of options (look for "lameopts").
+
+=back
+
+=head2 5 - Choose video output
+
+=over
+
+Select the desired video output. lavc (FFMpeg's avcodec libraries) is the default choice. Despite what you might assume
+"vcodec=mpeg4" relates to divx4/5 encoding, trust me on this one..! Many people prefer Xvid encoding, it's up to you 
+of course. Set any options specific to the selected output in the options box below. See the relevant entries in the mencoder manpage
+for the full selection. Only defaults for lavc are provided. The three main codecs can also use 2 pass encoding, select the option
+if you wish to encode the film twice to improve quality. 
+
+You should also check the bitrate here. This value is based on the desired file size and the selected audio bitrates. You may wish to 
+enter your own bitrate and lock the value using the check box to ensure that it is not changed. This naturally means that the file size can 
+not be guarenteed.
+
+=back
+
+=head2 6 - Crop film
+
+=over
+
+Assuming you are using a proper encoding codec (lavc / xvid / divx) then you should want to chop off any widescreen
+bars and such like. These bars just soak up disk space, leaving less for the actual film. Just pressing the "Detect"
+button should suffice, but it's a good idea to check the results to make sure, and adjust the values accordingly.
+Pressing the "Detect" button uses mplayer to pick frames throughout the DVD and analyzes it for unwanted areas. Note that
+the values for cropping are not related at all to the output size, but instead the size of the DVD itself (720x568 for PAL,
+720x480 for NTSC).
+
+=back
+
+=head2 7 - Scale film
+
+=over
+
+The final output dimensions of the film can now be set. By default the height is locked against the width setting in line
+with the aspect of the video (including any cropping to be applied). The scaling of the film is most likely to affect the BPP
+(Bits Per Pixel) values of the file. For a typical divx film you want about 0.17 - 0.20. A value higher than this just wastes space:
+divx just doesn't *need* it..., a lower value and the output is blocky and poor. By adjusting the width of the film you can
+affect the BPP value directly. Obviously file size and crop values can also affect the BPP among others.
+
+=back
+
+=head2 8 - Filters
+
+=over
+
+You can now enter any flags for processing the film, such as deinterlacing, deblocking etc. See the mencoder manpage for details.
+There are no set options other than a default "pp=de" as you should only use the options if you know what they are there for. rtfm!
+
+=back
+
+=head2 9 - Encode
+
+=over
+
+Everything should be set up now so press the "Start" button and make some tea.
+
+=back
+
+That is all that should be required to rip a DVD or file(s). However you should not need to perform each step every time. By saving your settings
+they will be automatically loaded next time, and if "Autoload media" is selected in the "Additional settings" dialog then the DVD / file / directory will be
+automatically loaded for you. Further more is autoload is set, and cropping in enabled then it will be cropped automatically too. After
+this, all you should ever need to do is that press start. One button!
+
+
+=head1 QUEUE
+
+
+=over
+
+Acidrip has the ability to build and process a queue of events. Clicking on "Queue" rather that "Start" will take the current encoding 
+settings and create the commands as normal but then add them to an execution queue which will not be executed until the "Start" button is 
+pressed. The queue can also be exported to a standard bash script (~/acidrip.sh) to execute outside of acidrip.
+
+=back
+
+
+=head1 ADDITIONAL FEATURES
+
+
+=over
+
+
+There are a number of other additional features in the "Additional settings" dialog window. These are:
+
+Mencoder / Mplayer / lsdvd entries: Change the default program names / locations. Allows you to set default parameters not handled elsewhere, 
+or set something such as changing "mencoder" to "nice mencoder" to run the program via nice.
+
+Cache DVD / Delete Cache: Values used in caching a disc. Firstly the directory to place the cached track in, wether to cache at all
+and wether to automatically delete the cache after encoding. NB. you do NOT NOT NOT *need* to cache a DVD at all, you jsut might want to.
+
+Language: The default ISO639 language code or full language name to use, e.g. en, de, English...
+
+Overwrite files: Movie files will be overwritten if they aleady exist.
+
+Shutdown: Attempt to shutdown system after completion.
+
+Compact progress dialog: Hides the main window while encoding, and only shows the encoding box by itself. There is no "Stop" button etc, 
+so as well as the smaller footprint you can't stop it by mistake.
+
+Enforce size check: The file size value set will turn red if there is apparently not enough space in the provided output directory. As the
+file size value is only used as an estimate and does not guarentee a fixed output size, you may well know something acidrip doesn't, so 
+you can allow the program to encode regardless if you wish.
+
+
+=head1 BUGS
+
+
+Please report any bugs or functional inconsistencies by email or on the sourceforge.net tracker.
+
+=head1 SEE ALSO
+
+mencoder(1) lsdvd
+
+=head1 AUTHOR
+
+Chris Phillips <acid_kewpie@users.sf.net> http://acidrip.sf.net
+
+=cut
